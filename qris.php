@@ -37,8 +37,9 @@ if (empty($tax)) {
     $uang .= $tax."5802ID";
 }
 
-$fix = trim($step2[0]).$uang.trim($step2[1]);
+$fix = trim($step2[0] ?? '') . $uang . trim($step2[1] ?? '');
 $fix .= ConvertCRC16($fix);
+
 
 echo "\n[+] Result: $fix\n";
 
