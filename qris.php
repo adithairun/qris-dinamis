@@ -1,65 +1,60 @@
 <?php
+require __DIR__ . '/vendor/autoload.php';
 
-// 00020101021126570011ID.DANA.WWW011893600915302259148102090225914810303UMI51440014ID.CO.QRIS.WWW0215ID10200176114730303UMI5204581253033605802ID5922Warung Sayur Bu Sugeng6010Kab. Demak610559567630458C7
+use Endroid\QrCode\Builder\Builder;
+use Endroid\QrCode\Writer\PngWriter;
 
-echo "[+] QRIS Statis to Dinamis Converter - By: GidhanB.A\n";
-echo "[+] Input Data QRIS: ";
-$qris = trim(fgets(STDIN));
-echo "[+] Input Nominal: ";
-$qty = trim(fgets(STDIN));
-echo "[+] Biaya Layanan? (y/n): ";
-$yn = trim(fgets(STDIN));
+$qris_statis = "00020101021126610014COM.GO-JEK.WWW01189360091430679224840210G0679224840303UMI51440014ID.CO.QRIS.WWW0215ID10243569168730303UMI5204729953033605802ID5916KlickFlow, DEPOK6006SLEMAN61055528162070703A0163041191";
 
-if ($yn == 'y') {
-    echo "[+] Rupiah atau Persen? (r/p): ";
-    $fee = trim(fgets(STDIN));
-    if ($fee == 'r') {
-        echo "[+] Input Biaya Layanan Dalam Rupiah: ";
-        $tax = trim(fgets(STDIN));
-        $tax = "55020256".sprintf("%02d", strlen($tax)).$tax;
-    } elseif ($fee == 'p') {
-        echo "[+] Input Biaya Layanan Dalam Persen: ";
-        $tax = trim(fgets(STDIN));
-        $tax = "55020357".sprintf("%02d", strlen($tax)).$tax;
-    } else {
-        die("Hadeh luh");
-    }
+$nominal = intval($_GET['nominal'] ?? 0);
+
+// === Konversi ke QRIS Dinamis ===
+$qris = substr($qris_statis, 0, -4);
+$qris = str_replace("010211", "010212", $qris);
+
+$uang = "54".sprintf("%02d", strlen($nominal)).$nominal;
+$parts = explode("5802ID", $qris);
+$payload = $parts[0].$uang."5802ID".$parts[1];
+$payload .= crc16($payload);
+
+// === Ambil Merchant Name (Tag 59) ===
+preg_match('/59(\d{2})(.{1,50})/', $payload, $m);
+$merchant = $m ? substr($m[2], 0, intval($m[1])) : '-';
+
+// === Ambil NMID (kasar, aman tampil) ===
+preg_match('/ID\d{12,16}/', $payload, $nmid);
+$nmid = $nmid[0] ?? '-';
+
+// === Output JSON untuk index.php ===
+if (isset($_GET['meta'])) {
+    header('Content-Type: application/json');
+    echo json_encode([
+        'merchant' => $merchant,
+        'nmid' => $nmid,
+        'nominal' => $nominal
+    ]);
+    exit;
 }
 
-$qris = substr($qris, 0, -4);
-$step1 = str_replace("010211", "010212", $qris);
-$step2 = explode("5802ID", $step1);
-$uang = "54".sprintf("%02d", strlen($qty)).$qty;
+// === Generate QR ===
+$result = Builder::create()
+    ->writer(new PngWriter())
+    ->data($payload)
+    ->size(280)
+    ->margin(10)
+    ->build();
 
-if (empty($tax)) {
-    $uang .= "5802ID";
-} else {
-    $uang .= $tax."5802ID";
-}
+header("Content-Type: image/png");
+echo $result->getString();
+exit;
 
-$fix = trim($step2[0]).$uang.trim($step2[1]);
-$fix .= ConvertCRC16($fix);
-
-echo "\n[+] Result: $fix\n";
-
-function ConvertCRC16($str) {
-    function charCodeAt($str, $i) {
-        return ord(substr($str, $i, 1));
-    }
+function crc16($str) {
     $crc = 0xFFFF;
-    $strlen = strlen($str);
-    for($c = 0; $c < $strlen; $c++) {
-        $crc ^= charCodeAt($str, $c) << 8;
-        for($i = 0; $i < 8; $i++) {
-            if($crc & 0x8000) {
-                $crc = ($crc << 1) ^ 0x1021;
-            } else {
-                $crc = $crc << 1;
-            }
+    for ($i=0; $i<strlen($str); $i++) {
+        $crc ^= ord($str[$i]) << 8;
+        for ($j=0; $j<8; $j++) {
+            $crc = ($crc & 0x8000) ? ($crc << 1) ^ 0x1021 : ($crc << 1);
         }
     }
-    $hex = $crc & 0xFFFF;
-    $hex = strtoupper(dechex($hex));
-    if (strlen($hex) == 3) $hex = "0".$hex;
-    return $hex;
+    return strtoupper(sprintf("%04X", $crc & 0xFFFF));
 }
